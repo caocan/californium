@@ -36,7 +36,7 @@ import static org.eclipse.californium.core.coap.CoAP.Type.ACK;
 import static org.eclipse.californium.core.coap.CoAP.Type.CON;
 import static org.eclipse.californium.core.coap.CoAP.Type.NON;
 import static org.eclipse.californium.core.coap.CoAP.Type.RST;
-import static org.eclipse.californium.core.test.MessageExchangeStoreTool.assertAllExchangesAreCompleted;
+import static org.eclipse.californium.core.test.MessageExchangeStoreTool.*;
 import static org.eclipse.californium.core.test.lockstep.IntegrationTestTools.createLockstepEndpoint;
 import static org.eclipse.californium.core.test.lockstep.IntegrationTestTools.generateNextToken;
 import static org.eclipse.californium.core.test.lockstep.IntegrationTestTools.printServerLog;
@@ -55,8 +55,6 @@ import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.Response;
-import org.eclipse.californium.core.network.CoapEndpoint;
-import org.eclipse.californium.core.network.InMemoryMessageExchangeStore;
 import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.core.server.resources.CoapExchange;
 import org.eclipse.californium.elements.UDPConnector;
@@ -89,8 +87,8 @@ public class ObserveServerSideTest {
 
 	private static CoapServer server;
 	private static InetSocketAddress serverAddress;
-	private static InMemoryMessageExchangeStore serverExchangeStore;
-	
+	private static CoapTestEndpoint serverEndpoint;
+
 	private LockstepEndpoint client;
 	private int mid = 7000;
 
@@ -99,7 +97,6 @@ public class ObserveServerSideTest {
 	private volatile static Type respType;
 
 	private static ServerBlockwiseInterceptor serverInterceptor = new ServerBlockwiseInterceptor();
-
 
 	@BeforeClass
 	public static void start() {
@@ -120,10 +117,8 @@ public class ObserveServerSideTest {
 		testObsResource = new TestObserveResource(RESOURCE_PATH);
 
 		server = new CoapServer();
-		serverExchangeStore = new InMemoryMessageExchangeStore(CONFIG);
-		server.addEndpoint(new CoapEndpoint(
-				CoapEndpoint.createUDPConnector(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), CONFIG),
-				CONFIG, null, serverExchangeStore));
+		serverEndpoint = new CoapTestEndpoint(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), CONFIG);
+		server.addEndpoint(serverEndpoint);
 		server.add(testObsResource);
 		server.getEndpoints().get(0).addInterceptor(serverInterceptor);
 		server.start();
@@ -142,7 +137,7 @@ public class ObserveServerSideTest {
 	@After
 	public void stopClient() {
 		try {
-			assertAllExchangesAreCompleted(CONFIG, serverExchangeStore);
+			assertAllExchangesAreCompleted(serverEndpoint);
 		} finally {
 			printServerLog(serverInterceptor);
 			
