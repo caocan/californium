@@ -18,15 +18,23 @@ package org.eclipse.californium.core.test;
 
 import static org.junit.Assert.assertTrue;
 
+import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.eclipse.californium.CheckCondition;
 import org.eclipse.californium.TestTools;
+import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.InMemoryMessageExchangeStore;
 import org.eclipse.californium.core.network.MessageExchangeStore;
+import org.eclipse.californium.core.network.Outbox;
 import org.eclipse.californium.core.network.config.NetworkConfig;
+import org.eclipse.californium.core.network.stack.BlockwiseLayer;
+import org.eclipse.californium.core.network.stack.CoapStack;
+import org.eclipse.californium.core.network.stack.CoapUdpStack;
+import org.eclipse.californium.core.network.stack.Layer;
+import org.eclipse.californium.core.observe.InMemoryObservationStore;
 
 /**
  * Test tools for MessageExchangeStore.
@@ -96,7 +104,32 @@ public class MessageExchangeStoreTool {
 			STORE_LOGGER.setLevel(level);
 		}
 	}
-	
+
+	/**
+	 * Assert, that exchanges store and block-wise layer are empty.
+	 */
+	public static void assertAllExchangesAreCompleted(final CoapTestEndpoint endpoint) {
+		NetworkConfig config = endpoint.getConfig();
+		int exchangeLifetime = (int) config.getLong(NetworkConfig.Keys.EXCHANGE_LIFETIME);
+		int sweepInterval = config.getInt(NetworkConfig.Keys.MARK_AND_SWEEP_INTERVAL);
+
+		Level level = STORE_LOGGER.getLevel();
+
+		try {
+			waitUntilDeduplicatorShouldBeEmpty(exchangeLifetime, sweepInterval, new CheckCondition() {
+
+				@Override
+				public boolean isFulFilled() throws IllegalStateException {
+					return endpoint.isEmpty();
+				}
+			});
+			STORE_LOGGER.setLevel(Level.FINER);
+			assertTrue("endpoint still contains states", endpoint.isEmpty());
+		} finally {
+			STORE_LOGGER.setLevel(level);
+		}
+	}
+
 	public static void waitUntilDeduplicatorShouldBeEmpty(final int exchangeLifetime, final int sweepInterval, CheckCondition check) {
 		try {
 			int timeToWait = exchangeLifetime + sweepInterval + 300; // milliseconds
@@ -107,4 +140,66 @@ public class MessageExchangeStoreTool {
 		}
 	}
 
+	public static class CoapUdpTestStack extends CoapUdpStack {
+
+		private BlockwiseLayer blockwiseLayer;
+
+		public CoapUdpTestStack(NetworkConfig config, Outbox outbox) {
+			super(config, outbox);
+		}
+
+		@Override
+		protected Layer createBlockwiseLayer(NetworkConfig config) {
+			blockwiseLayer = (BlockwiseLayer) super.createBlockwiseLayer(config);
+			return blockwiseLayer;
+		}
+
+		public BlockwiseLayer getBlockwiseLayer() {
+			return blockwiseLayer;
+		}
+
+		public boolean isEmpty() {
+			return blockwiseLayer == null || blockwiseLayer.isEmpty();
+		}
+	}
+
+	public static class CoapTestEndpoint extends CoapEndpoint {
+
+		private final MessageExchangeStore exchangeStore;
+		private final InMemoryObservationStore observationStore;
+		private CoapUdpTestStack stack;
+
+		private CoapTestEndpoint(InetSocketAddress bind, NetworkConfig config, InMemoryObservationStore observationStore,
+				MessageExchangeStore exchangeStore) {
+			super(CoapEndpoint.createUDPConnector(bind, config), config, observationStore, exchangeStore);
+			this.exchangeStore = exchangeStore;
+			this.observationStore = observationStore;
+		}
+
+		public CoapTestEndpoint(InetSocketAddress bind, NetworkConfig config) {
+			this(bind, config, new InMemoryObservationStore(), new InMemoryMessageExchangeStore(config));
+		}
+
+		@Override
+		protected CoapStack createUdpStack(NetworkConfig config, Outbox outbox) {
+			stack = new CoapUdpTestStack(config, outbox);
+			return stack;
+		}
+
+		public MessageExchangeStore getExchangeStore() {
+			return exchangeStore;
+		}
+
+		public InMemoryObservationStore getObservationStore() {
+			return observationStore;
+		}
+
+		public CoapUdpTestStack getStack() {
+			return stack;
+		}
+
+		public boolean isEmpty() {
+			return exchangeStore.isEmpty() && (stack == null || stack.isEmpty());
+		}
+	}
 }
